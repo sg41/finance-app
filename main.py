@@ -2,115 +2,185 @@
 import os
 import secrets
 import httpx
+import logging # 1. Импортируем модуль логгирования
 from datetime import datetime, timedelta
+from typing import Dict, Any
 
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
+from dotenv import load_dotenv
 
-# Импортируем наши модули
-from . import models
-from .database import engine, get_db
-from .encryption_service import encrypt_data
+import models
+from database import engine, get_db
+from encryption_service import encrypt_data, decrypt_data
 
-# Создаем все таблицы в БД при запуске (для простоты)
+# 2. Настраиваем базовую конфигурацию логгирования
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+
+load_dotenv()
+
+CLIENT_ID = os.getenv("CLIENT_ID")
+CLIENT_SECRET = os.getenv("CLIENT_SECRET")
+if not CLIENT_ID or not CLIENT_SECRET:
+    raise ValueError("CLIENT_ID и CLIENT_SECRET должны быть установлены в .env файле")
+
 models.Base.metadata.create_all(bind=engine)
-
 app = FastAPI()
 
-# Временное хранилище для state. В реальном приложении используйте сессии или Redis.
-STATE_STORAGE = {}
+BANK_TOKEN_CACHE: Dict[str, Dict] = {}
 
-# Конфигурация банков (берем из .env)
 BANK_CONFIGS = {
     "vbank": {
-        "client_id": os.getenv("VBANK_CLIENT_ID"),
-        "client_secret": os.getenv("VBANK_CLIENT_SECRET"),
-        "auth_url": "https://vbank.open.bankingapi.ru/auth/authorize",
-        "token_url": "https://vbank.open.bankingapi.ru/auth/token",
-        "redirect_uri": "http://127.0.0.1:8000/callback/vbank"
+        "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET,
+        "base_url": "https://vbank.open.bankingapi.ru", "auto_approve": True
     },
-    # Можно добавить a-bank и s-bank по аналогии
+    # ... другие банки
 }
 
-@app.get("/connect/{bank_name}")
-async def get_connection_link(bank_name: str):
-    """
-    Шаг 1: Инициировать подключение.
-    Возвращает ссылку, на которую нужно перенаправить пользователя.
-    """
+def log_request(request: httpx.Request):
+    """Функция для красивого вывода информации о запросе."""
+    logging.info(f"--> {request.method} {request.url}")
+    logging.info(f"    Headers: {request.headers}")
+    if request.content:
+        logging.info(f"    Body: {request.content.decode()}")
+
+def log_response(response: httpx.Response):
+    """Функция для красивого вывода информации об ответе."""
+    logging.info(f"<-- {response.status_code} {response.reason_phrase} URL: {response.url}")
+    try:
+        logging.info(f"    Response JSON: {response.json()}")
+    except Exception:
+        logging.info(f"    Response Text: {response.text}")
+
+# --- Вспомогательные функции ---
+
+async def get_bank_token(bank_name: str) -> str:
+    """Получает технический токен для нашего приложения."""
+    cache_entry = BANK_TOKEN_CACHE.get(bank_name)
+    if cache_entry and cache_entry["expires_at"] > datetime.utcnow():
+        return cache_entry["token"]
+
+    config = BANK_CONFIGS[bank_name]
+    token_url = f"{config['base_url']}/auth/bank-token"
+    params = {"client_id": config['client_id'], "client_secret": config['client_secret']}
+
+    async with httpx.AsyncClient() as client:
+        # --- ОТЛАДКА ---
+        request = client.build_request("POST", token_url, params=params)
+        log_request(request)
+        # --- КОНЕЦ ОТЛАДКИ ---
+        
+        response = await client.send(request)
+        
+        # --- ОТЛАДКА ---
+        log_response(response)
+        # --- КОНЕЦ ОТЛАДКИ ---
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=500, detail=f"Failed to get bank token: {response.text}")
+    
+    token_data = response.json()
+    BANK_TOKEN_CACHE[bank_name] = {
+        "token": token_data['access_token'],
+        "expires_at": datetime.utcnow() + timedelta(seconds=token_data['expires_in'] - 60)
+    }
+    return token_data['access_token']
+
+async def fetch_accounts(user_access_token: str, bank_name: str) -> dict:
+    """Используя токен пользователя, запрашивает список его счетов."""
+    config = BANK_CONFIGS[bank_name]
+    accounts_url = f"{config['base_url']}/accounts"
+    headers = {"Authorization": f"Bearer {user_access_token}", "X-Requesting-Bank": config['client_id']}
+    
+    async with httpx.AsyncClient() as client:
+        # --- ОТЛАДКА ---
+        request = client.build_request("GET", accounts_url, headers=headers)
+        log_request(request)
+        # --- КОНЕЦ ОТЛАДКИ ---
+        
+        response = await client.send(request)
+        
+        # --- ОТЛАДКА ---
+        log_response(response)
+        # --- КОНЕЦ ОТЛАДКИ ---
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch accounts: {response.text}")
+    
+    return response.json()
+
+# --- API Эндпоинты ---
+
+@app.post("/connect/{bank_name}")
+async def connect_bank_and_fetch_data(bank_name: str, db: Session = Depends(get_db)):
     if bank_name not in BANK_CONFIGS:
         raise HTTPException(status_code=404, detail="Bank not found")
     
     config = BANK_CONFIGS[bank_name]
-    state = secrets.token_urlsafe(16)
+    bank_access_token = await get_bank_token(bank_name)
     
-    # Сохраняем state для последующей проверки (привязав к сессии или user_id)
-    # Для теста просто сохраним в словарь
-    STATE_STORAGE['latest_state'] = state
-    
-    params = {
-        "response_type": "code",
-        "client_id": config['client_id'],
-        "scope": "accounts payments consents", # Запрашиваем нужные разрешения
-        "redirect_uri": config['redirect_uri'],
-        "state": state,
-    }
-    
-    # Используем httpx.Request для корректного формирования URL с параметрами
-    request = httpx.Request("GET", config['auth_url'], params=params)
-    
-    return {"authorization_url": str(request.url)}
-
-
-@app.get("/callback/{bank_name}")
-async def handle_bank_callback(bank_name: str, code: str, state: str, db: Session = Depends(get_db)):
-    """
-    Шаг 2: Обработка callback от банка.
-    Обменивает code на access_token и сохраняет его в БД.
-    """
-    # Проверяем state для защиты от CSRF
-    expected_state = STATE_STORAGE.get('latest_state')
-    if not expected_state or expected_state != state:
-        raise HTTPException(status_code=400, detail="Invalid state parameter")
-
-    config = BANK_CONFIGS[bank_name]
-    
-    # Шаг 3: Обмен кода на токен
-    token_data = {
-        "grant_type": "authorization_code",
-        "code": code,
-        "redirect_uri": config['redirect_uri'],
-    }
+    # --- Шаг 1: Создаем согласие ---
+    consent_url = f"{config['base_url']}/account-consents/request"
+    headers = {"Authorization": f"Bearer {bank_access_token}", "Content-Type": "application/json", "X-Requesting-Bank": config['client_id']}
+    consent_body = {"client_id": f"{config['client_id']}-1", "permissions": ["ReadAccountsDetail", "ReadBalances", "ReadTransactionsDetail"], "reason": "Агрегация счетов для FinApp", "requesting_bank": "FinApp"}
     
     async with httpx.AsyncClient() as client:
-        response = await client.post(
-            config['token_url'],
-            data=token_data,
-            auth=(config['client_id'], config['client_secret'])
-        )
-    
-    if response.status_code != 200:
-        raise HTTPException(status_code=response.status_code, detail=response.json())
+        # --- ОТЛАДКА ---
+        request = client.build_request("POST", consent_url, headers=headers, json=consent_body)
+        log_request(request)
+        # --- КОНЕЦ ОТЛАДКИ ---
         
+        response = await client.post(consent_url, headers=headers, json=consent_body)
+        
+        # --- ОТЛАДКА ---
+        log_response(response)
+        # --- КОНЕЦ ОТЛАДКИ ---
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=500, detail=f"Failed to create consent: {response.text}")
+
+    consent_data = response.json()
+    consent_id = consent_data['consent_id']
+
+    if not consent_data.get("auto_approved"):
+        raise HTTPException(status_code=501, detail="Manual approval flow is not implemented yet.")
+
+    # --- Шаг 3: Обмен согласия на токен пользователя ---
+    token_url = f"{config['base_url']}/auth/token"
+    token_data = {"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": consent_id}
+    auth = (config['client_id'], config['client_secret'])
+
+    # ИЗМЕНЕНИЕ: Мы передаем `auth` прямо в конструктор клиента.
+    # Теперь этот клиент будет автоматически применять аутентификацию ко всем запросам.
+    async with httpx.AsyncClient(auth=auth) as client:
+        # --- ОТЛАДКА ---
+        # Теперь `build_request` не нуждается в `auth`, так как он уже настроен в клиенте.
+        request = client.build_request("POST", token_url, data=token_data)
+        log_request(request)
+        # --- КОНЕЦ ОТЛАДКИ ---
+        
+        # Аналогично, `post` тоже больше не нуждается в `auth`.
+        response = await client.post(token_url, data=token_data)
+        
+        # --- ОТЛАДКА ---
+        log_response(response)
+        # --- КОНЕЦ ОТЛАДКИ ---
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=500, detail=f"Failed to exchange consent for token: {response.text}")
+    
     token_json = response.json()
-    
-    # Шаг 4: Шифруем и сохраняем токены в БД
-    # Для примера привязываем к пользователю с ID=1
-    # В реальном приложении здесь будет ID текущего залогиненного пользователя
-    user_id = 1 
-    
-    # Создаем запись о подключенном банке
-    new_connection = models.ConnectedBank(
-        user_id=user_id,
-        bank_name=bank_name,
-        consent_id="consent-" + secrets.token_hex(8), # ID согласия придет в другом запросе, пока генерируем
-        status="active"
-    )
+    user_access_token = token_json['access_token']
+
+    # --- Шаг 4: Сохраняем подключение и токены в БД ---
+    user_id = 1
+    new_connection = models.ConnectedBank(user_id=user_id, bank_name=bank_name, consent_id=consent_id, status="active")
     db.add(new_connection)
     db.commit()
     db.refresh(new_connection)
-
-    # Создаем запись с токенами
     new_token = models.AuthToken(
         connection_id=new_connection.id,
         encrypted_access_token=encrypt_data(token_json['access_token']),
@@ -119,5 +189,8 @@ async def handle_bank_callback(bank_name: str, code: str, state: str, db: Sessio
     )
     db.add(new_token)
     db.commit()
+
+    # --- Шаг 5: Сразу запрашиваем данные по счетам! ---
+    accounts_data = await fetch_accounts(user_access_token, bank_name)
     
-    return {"status": "success", "message": f"Bank {bank_name} connected successfully for user {user_id}"}
+    return {"status": "success", "message": f"Bank {bank_name} connected and accounts fetched successfully!", "accounts_data": accounts_data}
