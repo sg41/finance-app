@@ -1,123 +1,150 @@
-# main.py
 import os
-import secrets
-import httpx
+import requests
 from datetime import datetime, timedelta
+from collections import defaultdict
+from dotenv import load_dotenv
 
-from fastapi import FastAPI, Depends, HTTPException
-from sqlalchemy.orm import Session
+load_dotenv()
 
-# Импортируем наши модули
-from . import models
-from .database import engine, get_db
-from .encryption_service import encrypt_data
+BANK_URL = os.getenv("BANK_URL")
+CLIENT_ID = os.getenv("CLIENT_ID", "test_client_id")
+CLIENT_SECRET = os.getenv("CLIENT_SECRET", "test_client_secret")
 
-# Создаем все таблицы в БД при запуске (для простоты)
-models.Base.metadata.create_all(bind=engine)
-
-app = FastAPI()
-
-# Временное хранилище для state. В реальном приложении используйте сессии или Redis.
-STATE_STORAGE = {}
-
-# Конфигурация банков (берем из .env)
-BANK_CONFIGS = {
-    "vbank": {
-        "client_id": os.getenv("VBANK_CLIENT_ID"),
-        "client_secret": os.getenv("VBANK_CLIENT_SECRET"),
-        "auth_url": "https://vbank.open.bankingapi.ru/auth/authorize",
-        "token_url": "https://vbank.open.bankingapi.ru/auth/token",
-        "redirect_uri": "http://127.0.0.1:8000/callback/vbank"
-    },
-    # Можно добавить a-bank и s-bank по аналогии
-}
-
-@app.get("/connect/{bank_name}")
-async def get_connection_link(bank_name: str):
-    """
-    Шаг 1: Инициировать подключение.
-    Возвращает ссылку, на которую нужно перенаправить пользователя.
-    """
-    if bank_name not in BANK_CONFIGS:
-        raise HTTPException(status_code=404, detail="Bank not found")
-    
-    config = BANK_CONFIGS[bank_name]
-    state = secrets.token_urlsafe(16)
-    
-    # Сохраняем state для последующей проверки (привязав к сессии или user_id)
-    # Для теста просто сохраним в словарь
-    STATE_STORAGE['latest_state'] = state
-    
-    params = {
-        "response_type": "code",
-        "client_id": config['client_id'],
-        "scope": "accounts payments consents", # Запрашиваем нужные разрешения
-        "redirect_uri": config['redirect_uri'],
-        "state": state,
+# === 1. Получение токена ===
+def get_access_token():
+    url = f"{BANK_URL}/auth/bank-token"
+    data = {
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "grant_type": "client_credentials"
     }
-    
-    # Используем httpx.Request для корректного формирования URL с параметрами
-    request = httpx.Request("GET", config['auth_url'], params=params)
-    
-    return {"authorization_url": str(request.url)}
+    resp = requests.post(url, data=data)
+    resp.raise_for_status()
+    return resp.json()["access_token"]
 
+# === 2. Получение счетов ===
+def get_accounts(token):
+    url = f"{BANK_URL}/accounts"
+    headers = {"Authorization": f"Bearer {token}"}
+    resp = requests.get(url, headers=headers)
+    resp.raise_for_status()
+    return resp.json()["accounts"]
 
-@app.get("/callback/{bank_name}")
-async def handle_bank_callback(bank_name: str, code: str, state: str, db: Session = Depends(get_db)):
-    """
-    Шаг 2: Обработка callback от банка.
-    Обменивает code на access_token и сохраняет его в БД.
-    """
-    # Проверяем state для защиты от CSRF
-    expected_state = STATE_STORAGE.get('latest_state')
-    if not expected_state or expected_state != state:
-        raise HTTPException(status_code=400, detail="Invalid state parameter")
+# === 3. Получение договоров (agreements) ===
+def get_agreements(token):
+    url = f"{BANK_URL}/agreements"
+    headers = {"Authorization": f"Bearer {token}"}
+    resp = requests.get(url, headers=headers)
+    resp.raise_for_status()
+    return resp.json()["agreements"]
 
-    config = BANK_CONFIGS[bank_name]
-    
-    # Шаг 3: Обмен кода на токен
-    token_data = {
-        "grant_type": "authorization_code",
-        "code": code,
-        "redirect_uri": config['redirect_uri'],
-    }
-    
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            config['token_url'],
-            data=token_data,
-            auth=(config['client_id'], config['client_secret'])
-        )
-    
-    if response.status_code != 200:
-        raise HTTPException(status_code=response.status_code, detail=response.json())
-        
-    token_json = response.json()
-    
-    # Шаг 4: Шифруем и сохраняем токены в БД
-    # Для примера привязываем к пользователю с ID=1
-    # В реальном приложении здесь будет ID текущего залогиненного пользователя
-    user_id = 1 
-    
-    # Создаем запись о подключенном банке
-    new_connection = models.ConnectedBank(
-        user_id=user_id,
-        bank_name=bank_name,
-        consent_id="consent-" + secrets.token_hex(8), # ID согласия придет в другом запросе, пока генерируем
-        status="active"
-    )
-    db.add(new_connection)
-    db.commit()
-    db.refresh(new_connection)
+# === 4. Получение транзакций по счёту ===
+def get_transactions(token, account_id):
+    url = f"{BANK_URL}/accounts/{account_id}/transactions"
+    headers = {"Authorization": f"Bearer {token}"}
+    resp = requests.get(url, headers=headers)
+    resp.raise_for_status()
+    return resp.json()["transactions"]
 
-    # Создаем запись с токенами
-    new_token = models.AuthToken(
-        connection_id=new_connection.id,
-        encrypted_access_token=encrypt_data(token_json['access_token']),
-        encrypted_refresh_token=encrypt_data(token_json['refresh_token']),
-        expires_at=datetime.utcnow() + timedelta(seconds=token_json['expires_in'])
-    )
-    db.add(new_token)
-    db.commit()
-    
-    return {"status": "success", "message": f"Bank {bank_name} connected successfully for user {user_id}"}
+# === 5. Анализ регулярных платежей из транзакций ===
+def detect_recurring_payments(transactions, days_back=90):
+    # Группируем по описанию/получателю и сумме
+    groups = defaultdict(list)
+    cutoff = datetime.now() - timedelta(days=days_back)
+
+    for t in transactions:
+        # Пропускаем доходы
+        if t.get("amount", 0) >= 0:
+            continue
+        date = datetime.fromisoformat(t["bookingDate"])
+        if date < cutoff:
+            continue
+        key = (t.get("creditorName", "Unknown"), abs(t["amount"]))
+        groups[key].append(date)
+
+    recurring = []
+    for (creditor, amount), dates in groups.items():
+        if len(dates) >= 2:
+            # Простой расчёт периодичности: средний интервал
+            sorted_dates = sorted(dates)
+            intervals = [(sorted_dates[i] - sorted_dates[i-1]).days for i in range(1, len(sorted_dates))]
+            avg_interval = sum(intervals) / len(intervals) if intervals else 30
+
+            # Предположим, что следующий платёж примерно через тот же интервал
+            next_date = sorted_dates[-1] + timedelta(days=round(avg_interval))
+            recurring.append({
+                "creditor": creditor,
+                "amount": amount,
+                "next_date": next_date.strftime("%Y-%m-%d"),
+                "type": "recurring_payment",
+                "source": "transaction_analysis"
+            })
+    return recurring
+
+# === 6. Извлечение предстоящих платежей из договоров ===
+def extract_payments_from_agreements(agreements):
+    payments = []
+    for ag in agreements:
+        product_type = ag.get("productType", "").lower()
+        if product_type in ["loan", "credit", "credit_card"]:
+            # Условно считаем, что платёж ежемесячный
+            # В реальности можно брать из schedule или paymentPlan
+            start_date = ag.get("startDate", "2025-01-01")
+            amount = ag.get("monthlyPayment", 0)
+            if amount > 0:
+                # Простой расчёт: следующий платёж — в этом месяце или следующем
+                today = datetime.today()
+                next_date = today.replace(day=5)  # допустим, 5-е число
+                if next_date < today:
+                    next_date = (today.replace(day=1) + timedelta(days=32)).replace(day=5)
+                payments.append({
+                    "creditor": ag.get("bankName", "Bank") + " " + ag.get("productName", "Loan"),
+                    "amount": amount,
+                    "next_date": next_date.strftime("%Y-%m-%d"),
+                    "type": product_type,
+                    "source": "agreement"
+                })
+    return payments
+
+# === 7. Основной запуск ===
+def main():
+    print("🔍 Получение токена...")
+    token = get_access_token()
+    print("✅ Токен получен.")
+
+    print("\n🏦 Получение счетов...")
+    accounts = get_accounts(token)
+    account_ids = [acc["accountId"] for acc in accounts]
+    print(f"Найдено счетов: {len(accounts)}")
+
+    print("\n📑 Получение договоров...")
+    agreements = get_agreements(token)
+    print(f"Найдено договоров: {len(agreements)}")
+
+    all_transactions = []
+    for acc_id in account_ids:
+        print(f"  → Загрузка транзакций для счёта {acc_id[:8]}...")
+        txs = get_transactions(token, acc_id)
+        all_transactions.extend(txs)
+
+    print(f"\n🧾 Всего транзакций: {len(all_transactions)}")
+
+    # Анализ
+    recurring_from_tx = detect_recurring_payments(all_transactions)
+    payments_from_agr = extract_payments_from_agreements(agreements)
+
+    all_payments = recurring_from_tx + payments_from_agr
+
+    # Сортируем по дате
+    all_payments.sort(key=lambda x: x["next_date"])
+
+    # === Вывод в консоль (UI-аналог) ===
+    print("\n" + "="*60)
+    print("📅 ПРЕДСТОЯЩИЕ ПЛАТЕЖИ")
+    print("="*60)
+    for p in all_payments:
+        print(f"• {p['next_date']} | {p['amount']:>8.2f} ₽ | {p['creditor']} ({p['type']})")
+    print("="*60)
+
+if __name__ == "__main__":
+    main()
