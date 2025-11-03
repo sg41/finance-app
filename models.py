@@ -2,6 +2,7 @@
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from database import Base
+
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
@@ -13,8 +14,14 @@ class ConnectedBank(Base):
     user_id = Column(Integer, ForeignKey("users.id"))
     bank_name = Column(String, index=True)
     bank_client_id = Column(String, index=True)
-    consent_id = Column(String, unique=True)
-    status = Column(String, default="active")
-    full_name = Column(String, nullable=True) # <-- ДОБАВЛЯЕМ СЮДА
+    
+    # ИЗМЕНЕНИЕ 1: Добавляем поле для ID запроса
+    request_id = Column(String, unique=True, nullable=True, index=True)
+    
+    # ИЗМЕНЕНИЕ 2: consent_id теперь может быть пустым (для статуса "pending")
+    consent_id = Column(String, unique=True, nullable=True)
+    
+    status = Column(String, default="pending") # <-- Меняем статус по умолчанию
+    full_name = Column(String, nullable=True)
     
     user = relationship("User")
