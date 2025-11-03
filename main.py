@@ -14,7 +14,7 @@ import models
 from database import engine, get_db
 from encryption_service import encrypt_data
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn")
 load_dotenv()
 
 CLIENT_ID = os.getenv("CLIENT_ID")
@@ -96,63 +96,75 @@ async def fetch_accounts(bank_access_token: str, consent_id: str, bank_client_id
     return response.json()
 
 
-# --- ИЗМЕНЕНИЕ: Эндпоинт теперь принимает суффикс клиента ---
+# main.py
+
+# ... (весь код выше остается без изменений) ...
+
 @app.post("/connect/{bank_name}/{client_suffix}")
 async def connect_bank_and_fetch_data(bank_name: str, client_suffix: int, db: Session = Depends(get_db)):
     if bank_name not in BANK_CONFIGS:
         raise HTTPException(status_code=404, detail="Bank not found")
-    
+
     config = BANK_CONFIGS[bank_name]
-    bank_access_token = await get_bank_token(bank_name)
-    
-    # --- ИЗМЕНЕНИЕ: Формируем полный ID клиента банка (например, "team076-1") ---
+    user_id = 1
     full_bank_client_id = f"{config['client_id']}-{client_suffix}"
-    
-    # Шаг 2: Создаем согласие
+
+    # Шаг 1: Получаем токен и создаем согласие
+    bank_access_token = await get_bank_token(bank_name)
     consent_url = f"{config['base_url']}/account-consents/request"
     headers = {"Authorization": f"Bearer {bank_access_token}", "Content-Type": "application/json", "X-Requesting-Bank": config['client_id']}
-    
-    # --- ИЗМЕНЕНИЕ: Используем полный ID клиента в теле запроса ---
-    consent_body = {
-        "client_id": full_bank_client_id,
-        "permissions": ["ReadAccountsDetail", "ReadBalances", "ReadTransactionsDetail"],
-        "reason": f"Агрегация счетов для клиента {full_bank_client_id}",
-        "requesting_bank": "FinApp"
-    }
+    consent_body = {"client_id": full_bank_client_id, "permissions": ["ReadAccountsDetail", "ReadBalances", "ReadTransactionsDetail"], "reason": f"Агрегация счетов для клиента {full_bank_client_id}", "requesting_bank": "FinApp"}
     
     async with httpx.AsyncClient() as client:
-        # ... (блок логгирования и отправки запроса) ...
-        request = client.build_request("POST", consent_url, headers=headers, json=consent_body)
-        log_request(request)
         response = await client.post(consent_url, headers=headers, json=consent_body)
-        log_response(response)
 
     if response.status_code != 200:
         raise HTTPException(status_code=500, detail=f"Failed to create consent: {response.text}")
-
     consent_data = response.json()
     consent_id = consent_data['consent_id']
-
     if not consent_data.get("auto_approved"):
         raise HTTPException(status_code=501, detail="Manual approval flow is not implemented yet.")
 
-    # Шаг 3: Сохраняем информацию о подключении в БД.
-    user_id = 1
-    new_connection = models.ConnectedBank(
-        user_id=user_id,
-        bank_name=bank_name,
-        bank_client_id=full_bank_client_id, # <-- Сохраняем ID клиента
-        consent_id=consent_id,
-        status="active"
-    )
-    db.add(new_connection)
-    db.commit()
-
-    # Шаг 4: Запрашиваем данные по счетам
-    accounts_data = await fetch_accounts(bank_access_token, consent_id, full_bank_client_id, bank_name)
+    # --- ИЗМЕНЕНИЕ: Логика "Найти или Создать" ---
     
+    # Шаг 2: Ищем подключение по УНИКАЛЬНОМУ consent_id
+    connection = db.query(models.ConnectedBank).filter(
+        models.ConnectedBank.consent_id == consent_id
+    ).first()
+
+    if connection:
+        logger.info(f"Найдено существующее подключение с consent_id: {consent_id}. Будет обновлено.")
+        status_message = "already_exists_updated"
+    else:
+        logger.info(f"Создается новое подключение с consent_id: {consent_id}.")
+        # Если не найдено, создаем новый объект БЕЗ имени
+        connection = models.ConnectedBank(
+            user_id=user_id,
+            bank_name=bank_name,
+            bank_client_id=full_bank_client_id,
+            consent_id=consent_id,
+            status="active",
+        )
+        db.add(connection)
+        db.commit() # Сохраняем "пустую" запись, чтобы она появилась в БД
+        db.refresh(connection) # Обновляем объект, чтобы получить его ID из БД
+        status_message = "success_created"
+
+    # Шаг 3: Запрашиваем данные по счетам
+    accounts_data = await fetch_accounts(bank_access_token, consent_id, full_bank_client_id, bank_name)
+
+    # Шаг 4: Извлекаем имя и ОБНОВЛЯЕМ запись
+    try:
+        account_holder_name = accounts_data.get("data", {}).get("account", [{}])[0].get("account", [{}])[0].get("name")
+        if account_holder_name and connection.full_name != account_holder_name:
+            logger.info(f"Обновляем имя для consent_id {consent_id} на '{account_holder_name}'")
+            connection.full_name = account_holder_name
+            db.commit() # Сохраняем только изменение имени
+    except (IndexError, KeyError, AttributeError) as e:
+        logger.warning(f"Не удалось извлечь имя пользователя из данных по счетам: {e}")
+
     return {
-        "status": "success",
-        "message": f"Bank client {full_bank_client_id} connected and accounts fetched successfully!",
+        "status": status_message,
+        "message": f"Bank client {full_bank_client_id} processed successfully!",
         "accounts_data": accounts_data
     }

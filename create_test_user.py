@@ -39,7 +39,7 @@ def reset_database():
         print("-> Создаю тестового пользователя с ID=1...")
         # ID указывается вручную, чтобы он был предсказуемым для тестов
         # full_name=None, так как имя мы получаем позже из API
-        new_user = models.User(id=1, email="testuser@example.com", full_name=None)
+        new_user = models.User(id=1, email="testuser@example.com")
         db.add(new_user)
         db.commit()
         print("   ...тестовый пользователь успешно создан!")
