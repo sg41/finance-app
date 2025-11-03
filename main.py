@@ -32,7 +32,7 @@ BANK_CONFIGS = {
     "sbank": {"client_id": CLIENT_ID, "client_secret": CLIENT_SECRET, "base_url": "https://sbank.open.bankingapi.ru", "auto_approve": False}
 }
 
-# ... (функции log_request, log_response, get_bank_token, fetch_accounts остаются без изменений) ...
+# ... (вспомогательные функции log_request, log_response, get_bank_token, fetch_accounts остаются без изменений) ...
 def log_request(request: httpx.Request): logger.info(f"--> {request.method} {request.url}\n    Headers: {request.headers}\n    Body: {request.content.decode() if request.content else ''}")
 def log_response(response: httpx.Response): logger.info(f"<-- {response.status_code} URL: {response.url}\n    Response JSON: {response.text}")
 async def get_bank_token(bank_name: str) -> str:
@@ -59,83 +59,131 @@ async def fetch_accounts(bank_access_token: str, consent_id: str, bank_client_id
     if response.status_code != 200: raise HTTPException(status_code=500, detail=f"Failed to fetch accounts: {response.text}")
     return response.json()
 
+@app.get("/connection/check/{bank_name}/{client_suffix}", summary="Шаг 0: Проверить наличие подключения в БД")
+async def check_connection_exists(bank_name: str, client_suffix: int, db: Session = Depends(get_db)):
+    """
+    Проверяет, существует ли уже запись о подключении для данного банка и клиента,
+    не создавая нового подключения.
+    """
+    user_id = 1 # Наш тестовый пользователь
+    full_bank_client_id = f"{CLIENT_ID}-{client_suffix}"
+
+    logger.info(f"Проверка наличия подключения для клиента {full_bank_client_id} в банке {bank_name}...")
+
+    connection = db.query(models.ConnectedBank).filter(
+        models.ConnectedBank.user_id == user_id,
+        models.ConnectedBank.bank_name == bank_name,
+        models.ConnectedBank.bank_client_id == full_bank_client_id
+    ).first()
+
+    if connection:
+        logger.info(f"Подключение найдено. ID: {connection.id}, Статус: {connection.status}")
+        return {
+            "status": "exists",
+            "message": "A connection for this client already exists.",
+            "connection_id": connection.id,
+            "connection_status": connection.status
+        }
+    else:
+        logger.info("Подключение не найдено.")
+        raise HTTPException(
+            status_code=404,
+            detail="Connection not found for the specified bank and client."
+        )
 
 @app.post("/connect/{bank_name}/{client_suffix}", summary="Шаг 1: Инициировать подключение")
 async def initiate_connection(bank_name: str, client_suffix: int, db: Session = Depends(get_db)):
-    # ... (код функции почти тот же, что и в прошлый раз, но теперь он только создает запись) ...
     config = BANK_CONFIGS[bank_name]
     user_id = 1
     full_bank_client_id = f"{config['client_id']}-{client_suffix}"
+
+    # --- ИЗМЕНЕНИЕ: Проверяем, существует ли уже такое подключение, ВКЛЮЧАЯ ИМЯ БАНКА ---
+    existing_connection = db.query(models.ConnectedBank).filter(
+        models.ConnectedBank.user_id == user_id,
+        models.ConnectedBank.bank_client_id == full_bank_client_id,
+        models.ConnectedBank.bank_name == bank_name # <-- ПРОВЕРКА ДОБАВЛЕНА ЗДЕСЬ
+    ).first()
+
+    if existing_connection:
+        logger.info(f"Подключение для клиента {full_bank_client_id} в банке {bank_name} уже существует (ID: {existing_connection.id}).")
+        return {
+            "status": "already_initiated",
+            "message": "Connection has been already initiated. To refresh data or check status, use the /check_consent endpoint.",
+            "connection_id": existing_connection.id
+        }
+
+    # --- Если подключения нет, создаем новое ---
     bank_access_token = await get_bank_token(bank_name)
     consent_url = f"{config['base_url']}/account-consents/request"
     headers = {"Authorization": f"Bearer {bank_access_token}", "Content-Type": "application/json", "X-Requesting-Bank": config['client_id']}
-    consent_body = {"client_id": full_bank_client_id, "permissions": ["ReadAccountsDetail", "ReadBalances", "ReadTransactionsDetail"], "reason": f"Агрегация счетов для клиента {full_bank_client_id}", "requesting_bank": "FinApp"}
+    consent_body = {"client_id": full_bank_client_id, "permissions": ["ReadAccountsDetail", "ReadBalances", "ReadTransactionsDetail"], "reason": f"Агрегация счетов для {full_bank_client_id}", "requesting_bank": "FinApp"}
     
     async with httpx.AsyncClient() as client:
         response = await client.post(consent_url, headers=headers, json=consent_body)
     log_response(response)
         
-    if response.status_code != 200: raise HTTPException(status_code=500, detail=f"Failed to create consent: {response.text}")
-
+    if response.status_code != 200: raise HTTPException(status_code=500, detail=f"Failed to create consent request: {response.text}")
     consent_data = response.json()
 
     if consent_data.get("auto_approved"):
-        # ... (логика для vbank/abank) ...
         consent_id = consent_data['consent_id']
         connection = models.ConnectedBank(user_id=user_id, bank_name=bank_name, bank_client_id=full_bank_client_id, consent_id=consent_id, status="active")
         db.add(connection)
         db.commit()
-        db.refresh(connection)
-        accounts_data = await fetch_accounts(bank_access_token, consent_id, full_bank_client_id, bank_name)
-        # ... (код обновления имени) ...
-        try:
-            name = accounts_data.get("data", {}).get("account", [{}])[0].get("account", [{}])[0].get("name")
-            if name: connection.full_name = name; db.commit()
-        except Exception: pass
-        return {"status": "success_auto_approved", "connection_id": connection.id, "accounts_data": accounts_data}
+        return {"status": "success_auto_approved", "message": "Connection created and auto-approved.", "connection_id": connection.id}
     else:
-        # --- Новая логика для SBank ---
         request_id = consent_data['request_id']
         connection = models.ConnectedBank(user_id=user_id, bank_name=bank_name, bank_client_id=full_bank_client_id, request_id=request_id, status="pending")
         db.add(connection)
         db.commit()
-        db.refresh(connection)
-        return {"status": "pending_manual_approval", "connection_id": connection.id, "message": "Connection initiated. Please approve on the bank's side and then check the status."}
+        return {"status": "pending_manual_approval", "message": "Connection initiated. Please approve and check status.", "connection_id": connection.id}
 
-@app.post("/check_consent/{connection_id}", summary="Шаг 2: Проверить статус согласия (для SBank)")
+@app.post("/check_consent/{connection_id}", summary="Шаг 2: Проверить статус или обновить данные")
 async def check_consent_status(connection_id: int, db: Session = Depends(get_db)):
     connection = db.query(models.ConnectedBank).filter(models.ConnectedBank.id == connection_id).first()
     if not connection: raise HTTPException(status_code=404, detail="Connection not found")
-    if connection.status != "pending": return {"status": connection.status, "message": "Consent is not in a pending state."}
     
     config = BANK_CONFIGS[connection.bank_name]
     bank_access_token = await get_bank_token(connection.bank_name)
     
-    check_url = f"{config['base_url']}/account-consents/{connection.request_id}"
-    headers = {"Authorization": f"Bearer {bank_access_token}", "X-Requesting-Bank": config['client_id']}
-    
+    # --- ИЗМЕНЕНИЕ: Разная логика для 'pending' и 'active' ---
+    if connection.status == "pending":
+        # Проверяем ожидающее согласие по request_id
+        check_url = f"{config['base_url']}/account-consents/{connection.request_id}"
+        headers = {"Authorization": f"Bearer {bank_access_token}", "X-Requesting-Bank": config['client_id']}
+    elif connection.status == "active":
+        # Проверяем активное согласие по consent_id
+        check_url = f"{config['base_url']}/account-consents/{connection.consent_id}"
+        # Используем другой заголовок, как в документации
+        headers = {"Authorization": f"Bearer {bank_access_token}", "x-fapi-interaction-id": config['client_id']}
+    else:
+        return {"status": connection.status, "message": "Consent is in a final, non-checkable state."}
+
     async with httpx.AsyncClient() as client:
         response = await client.get(check_url, headers=headers)
     log_response(response)
 
     if response.status_code != 200: raise HTTPException(status_code=500, detail=f"Failed to check consent status: {response.text}")
-    
     consent_data = response.json().get("data", {})
     
-    # ИЗМЕНЕНИЕ: Приводим статус к нижнему регистру перед сравнением
     if consent_data.get("status", "").lower() == "authorized":
-        consent_id = consent_data['consentId']
-        connection.consent_id = consent_id
+        # Если статус "authorized", обновляем нашу запись и получаем данные
+        if connection.status == "pending":
+            connection.consent_id = consent_data['consentId']
         connection.status = "active"
         db.commit()
-        db.refresh(connection)
         
-        accounts_data = await fetch_accounts(bank_access_token, consent_id, connection.bank_client_id, connection.bank_name)
+        accounts_data = await fetch_accounts(bank_access_token, connection.consent_id, connection.bank_client_id, connection.bank_name)
         try:
             name = accounts_data.get("data", {}).get("account", [{}])[0].get("account", [{}])[0].get("name")
-            if name: connection.full_name = name; db.commit()
+            if name and connection.full_name != name: connection.full_name = name; db.commit()
         except Exception: pass
         
-        return {"status": "success_approved", "message": "Consent approved and data fetched!", "accounts_data": accounts_data}
+        return {"status": "success_approved", "message": "Consent is active and data fetched!", "accounts_data": accounts_data}
     else:
-        return {"status": "still_pending", "message": "User has not approved the consent yet."}
+        # Если статус другой (например, "pending" или "revoked")
+        new_status = consent_data.get("status", "unknown").lower()
+        if connection.status != new_status:
+            connection.status = new_status
+            db.commit()
+        return {"status": new_status, "message": "Consent is not authorized yet or has been revoked."}
