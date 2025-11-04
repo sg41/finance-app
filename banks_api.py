@@ -8,7 +8,7 @@ import shutil
 import os
 from typing import List
 from starlette.requests import Request
-from deps import get_current_user, get_current_admin_user # <-- ИЗМЕНЕНИЕ 1: Импортируем зависимости
+from deps import get_current_user, get_current_admin_user
 
 router = APIRouter(prefix="/banks", tags=["banks"])
 
@@ -17,14 +17,13 @@ os.makedirs(ICON_DIR, exist_ok=True)
 
 @router.post(
     "/{bank_id}/icon",
-    summary="Загрузить иконку для банка (Только для администраторов)", # <-- ИЗМЕНЕНИЕ 2: Обновили описание
+    summary="Загрузить иконку для банка (Только для администраторов)",
     tags=["banks"]
 )
 def upload_bank_icon(
     bank_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    # v-- ИЗМЕНЕНИЕ 3: Добавили зависимость для проверки прав администратора --v
     current_admin: models.User = Depends(get_current_admin_user)
 ):
     """
@@ -34,7 +33,17 @@ def upload_bank_icon(
     bank = db.query(models.Bank).filter(models.Bank.id == bank_id).first()
     if not bank:
         raise HTTPException(status_code=404, detail="Bank not found")
+        
+    # --- v-- ДОБАВЛЕНА ПРОВЕРКА --v ---
+    # Проверяем, что файл был отправлен и имеет content_type
+    if not file or not file.content_type:
+         raise HTTPException(
+            status_code=400, 
+            detail="File is missing or is not a valid multipart upload."
+        )
+    # --- ^-- КОНЕЦ ПРОВЕРКИ --^ ---
 
+    # Теперь эта проверка безопасна
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Invalid file type, please upload an image.")
 
@@ -57,12 +66,11 @@ def upload_bank_icon(
 @router.get(
     "/",
     response_model=BankListResponse,
-    summary="Получить список доступных банков (Для авторизованных пользователей)" # <-- ИЗМЕНЕНИЕ 4: Обновили описание
+    summary="Получить список доступных банков (Для авторизованных пользователей)"
 )
 def get_available_banks(
     request: Request,
     db: Session = Depends(get_db),
-    # v-- ИЗМЕНЕНИЕ 5: Добавили зависимость для проверки аутентификации --v
     current_user: models.User = Depends(get_current_user)
 ):
     """

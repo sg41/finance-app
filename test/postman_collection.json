@@ -208,14 +208,15 @@
                                     }
                                 },
                                 "url": {
-                                    "raw": "{{base_url}}/users/{{user_id}}/connections",
+                                    "raw": "{{base_url}}/users/{{user_id}}/connections/",
                                     "host": [
                                         "{{base_url}}"
                                     ],
                                     "path": [
                                         "users",
                                         "{{user_id}}",
-                                        "connections"
+                                        "connections",
+                                        ""
                                     ]
                                 }
                             }
@@ -308,14 +309,15 @@
                                     }
                                 },
                                 "url": {
-                                    "raw": "{{base_url}}/users/{{user_id}}/connections",
+                                    "raw": "{{base_url}}/users/{{user_id}}/connections/",
                                     "host": [
                                         "{{base_url}}"
                                     ],
                                     "path": [
                                         "users",
                                         "{{user_id}}",
-                                        "connections"
+                                        "connections",
+                                        ""
                                     ]
                                 }
                             }
@@ -408,14 +410,15 @@
                                     }
                                 },
                                 "url": {
-                                    "raw": "{{base_url}}/users/{{user_id}}/connections",
+                                    "raw": "{{base_url}}/users/{{user_id}}/connections/",
                                     "host": [
                                         "{{base_url}}"
                                     ],
                                     "path": [
                                         "users",
                                         "{{user_id}}",
-                                        "connections"
+                                        "connections",
+                                        ""
                                     ]
                                 }
                             }
@@ -657,14 +660,15 @@
                         },
                         "method": "GET",
                         "url": {
-                            "raw": "{{base_url}}/users/1/connections",
+                            "raw": "{{base_url}}/users/1/connections/",
                             "host": [
                                 "{{base_url}}"
                             ],
                             "path": [
                                 "users",
                                 "1",
-                                "connections"
+                                "connections",
+                                ""
                             ]
                         }
                     }
@@ -731,14 +735,15 @@
                     "request": {
                         "method": "GET",
                         "url": {
-                            "raw": "{{base_url}}/users/999/connections",
+                            "raw": "{{base_url}}/users/999/connections/",
                             "host": [
                                 "{{base_url}}"
                             ],
                             "path": [
                                 "users",
                                 "999",
-                                "connections"
+                                "connections",
+                                ""
                             ]
                         }
                     }
@@ -768,14 +773,15 @@
                             }
                         },
                         "url": {
-                            "raw": "{{base_url}}/users/{{user_id}}/connections",
+                            "raw": "{{base_url}}/users/{{user_id}}/connections/",
                             "host": [
                                 "{{base_url}}"
                             ],
                             "path": [
                                 "users",
                                 "{{user_id}}",
-                                "connections"
+                                "connections",
+                                ""
                             ]
                         }
                     }
@@ -805,17 +811,238 @@
                             }
                         },
                         "url": {
-                            "raw": "{{base_url}}/users/{{user_id}}/connections",
+                            "raw": "{{base_url}}/users/{{user_id}}/connections/",
                             "host": [
                                 "{{base_url}}"
                             ],
                             "path": [
                                 "users",
                                 "{{user_id}}",
-                                "connections"
+                                "connections",
+                                ""
                             ]
                         }
                     }
+                }
+            ]
+        },
+        {
+            "name": "Banks API",
+            "item": [
+                {
+                    "name": "Get Banks List (Success - as User)",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test(\"Status code is 200 OK\", function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "});",
+                                    "",
+                                    "pm.test(\"Response body has correct structure\", function () {",
+                                    "    const d = pm.response.json();",
+                                    "    pm.expect(d).to.be.an('object');",
+                                    "    pm.expect(d).to.have.property('count');",
+                                    "    pm.expect(d).to.have.property('banks');",
+                                    "    pm.expect(d.banks).to.be.an('array');",
+                                    "});",
+                                    "",
+                                    "pm.test(\"Each bank object has required properties\", function () {",
+                                    "    const d = pm.response.json();",
+                                    "    if (d.banks.length > 0) {",
+                                    "        const bank = d.banks[0];",
+                                    "        pm.expect(bank).to.have.property('id');",
+                                    "        pm.expect(bank).to.have.property('name');",
+                                    "        pm.expect(bank).to.have.property('base_url');",
+                                    "        pm.expect(bank).to.have.property('auto_approve');",
+                                    "        pm.expect(bank).to.have.property('icon_url');",
+                                    "    }",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/banks/",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "banks",
+                                ""
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "Get Banks List (Fail - No Auth)",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test(\"Status code is 401 Unauthorized\", function () {",
+                                    "    pm.response.to.have.status(401);",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "auth": {
+                            "type": "noauth"
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/banks/",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "banks",
+                                ""
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "Upload Icon (Fail - Forbidden as User)",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test(\"Status code is 403 Forbidden\", function () {",
+                                    "    pm.response.to.have.status(403);",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "file",
+                                    "type": "file",
+                                    "src": ""
+                                }
+                            ]
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/banks/1/icon",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "banks",
+                                "1",
+                                "icon"
+                            ]
+                        }
+                    },
+                    "description": "NOTE: This test will fail on the request itself if you don't manually select a file to upload. The purpose is to check for the 403 Forbidden status code."
+                },
+                {
+                    "name": "(SETUP) Login as Admin for Icon Upload",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                                    "pm.environment.set(\"auth_token\", pm.response.json().access_token);"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "auth": {
+                            "type": "noauth"
+                        },
+                        "method": "POST",
+                        "body": {
+                            "mode": "urlencoded",
+                            "urlencoded": [
+                                {
+                                    "key": "username",
+                                    "value": "{{admin_email}}"
+                                },
+                                {
+                                    "key": "password",
+                                    "value": "{{admin_password}}"
+                                }
+                            ]
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/auth/login",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "auth",
+                                "login"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "Upload Icon (Fail - No File as Admin)",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test(\"Status code is 400 Bad Request\", function () {",
+                                    "    pm.response.to.have.status(400);",
+                                    "});",
+                                    "pm.test(\"Response contains detail message\", function () {",
+                                    "    const d = pm.response.json();",
+                                    "    pm.expect(d).to.have.property('detail');",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "file",
+                                    "type": "file",
+                                    "src": ""
+                                }
+                            ]
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/banks/1/icon",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "banks",
+                                "1",
+                                "icon"
+                            ]
+                        }
+                    },
+                    "description": "This test verifies that the API correctly rejects an admin's request if no file is attached, which is the case when running via Newman."
                 }
             ]
         }
