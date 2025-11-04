@@ -39,10 +39,11 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # Указываем источники (origins), которым разрешено делать запросы.
 # Звездочка (*) разрешает все источники, что удобно для разработки.
 origins = [
-    "http://localhost",
-    "http://localhost:8080",
-    "http://localhost:5000", # Стандартные порты для flutter web
-    "http://127.0.0.1:5000",
+    "*",
+    # "http://localhost",
+    # "http://localhost:8080",
+    # "http://localhost:5000", # Стандартные порты для flutter web
+    # "http://127.0.0.1:5000",
     # Добавьте любой другой порт, на котором может запускаться ваше Flutter-приложение
 ]
 
