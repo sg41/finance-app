@@ -11,6 +11,7 @@ class Bank(Base):
     client_secret = Column(String, nullable=False)
     base_url = Column(String, nullable=False)
     auto_approve = Column(Boolean, default=False)
+    icon_filename = Column(String, nullable=True) # <-- ПОЛЕ ПЕРЕИМЕНОВАНО
 
 class User(Base):
     __tablename__ = "users"

@@ -46,12 +46,14 @@ def reset_database():
 
         print("-> Добавляю информацию о банках...")
         banks_to_add = [
+            # Теперь иконки не указываются здесь. Их нужно загружать через API.
             models.Bank(name="vbank", client_id=CLIENT_ID, client_secret=CLIENT_SECRET, base_url="https://vbank.open.bankingapi.ru", auto_approve=True),
             models.Bank(name="abank", client_id=CLIENT_ID, client_secret=CLIENT_SECRET, base_url="https://abank.open.bankingapi.ru", auto_approve=True),
             models.Bank(name="sbank", client_id=CLIENT_ID, client_secret=CLIENT_SECRET, base_url="https://sbank.open.bankingapi.ru", auto_approve=False)
         ]
         db.add_all(banks_to_add)
-        print("   ...банки vbank, abank, sbank успешно добавлены.")
+        print("   ...банки vbank, abank, sbank успешно добавлены (без иконок).")
+
         
         print("-> Создаю обычного тестового пользователя (ID=1)...")
         hashed_pw_user = get_password_hash("password")

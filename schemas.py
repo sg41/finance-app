@@ -49,7 +49,8 @@ class BankResponse(BaseModel):
     name: str
     base_url: str
     auto_approve: bool
-
+    icon_url: Optional[str] = None # <-- Оставляем это поле как было
+    
     class Config:
         from_attributes = True
 

@@ -8,6 +8,7 @@ from typing import Dict, Optional
 
 from pydantic import BaseModel
 from fastapi import FastAPI, APIRouter, Depends, HTTPException
+from fastapi.staticfiles import StaticFiles # <-- ИМПОРТИРУЙТЕ StaticFiles
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 
@@ -28,6 +29,10 @@ app = FastAPI(
     version="1.0.0",
     description="API для подключения банковских счетов и управления финансовыми данными."
 )
+
+# Монтируем директорию 'static' для раздачи статических файлов.
+# Теперь любой файл в /static/icons/ будет доступен по URL /static/icons/
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 router = APIRouter(
     prefix="/users/{user_id}/connections",
