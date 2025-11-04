@@ -9,6 +9,7 @@ from typing import Dict, Optional
 from pydantic import BaseModel
 from fastapi import FastAPI, APIRouter, Depends, HTTPException
 from fastapi.staticfiles import StaticFiles # <-- ИМПОРТИРУЙТЕ StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 
@@ -33,6 +34,26 @@ app = FastAPI(
 # Монтируем директорию 'static' для раздачи статических файлов.
 # Теперь любой файл в /static/icons/ будет доступен по URL /static/icons/
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# --- 2. ДОБАВЬТЕ БЛОК НАСТРОЙКИ CORS ---
+# Указываем источники (origins), которым разрешено делать запросы.
+# Звездочка (*) разрешает все источники, что удобно для разработки.
+origins = [
+    "http://localhost",
+    "http://localhost:8080",
+    "http://localhost:5000", # Стандартные порты для flutter web
+    "http://127.0.0.1:5000",
+    # Добавьте любой другой порт, на котором может запускаться ваше Flutter-приложение
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"], # Разрешить все методы (GET, POST, и т.д.)
+    allow_headers=["*"], # Разрешить все заголовки
+)
+
 
 router = APIRouter(
     prefix="/users/{user_id}/connections",
