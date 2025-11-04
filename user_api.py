@@ -1,4 +1,4 @@
-# user_api.py
+# finance-app-master/user_api.py
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -17,10 +17,6 @@ def get_users(
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin_user)
 ):
-    """
-    Получить список пользователей. **Доступно только администраторам.**
-    Можно отфильтровать по email.
-    """
     query = db.query(User)
     
     if email:
@@ -29,14 +25,8 @@ def get_users(
     users = query.all()
     return UserListResponse(count=len(users), users=users)
 
-# --- ЭНДПОИНТЫ ДЛЯ ОБЫЧНЫХ ПОЛЬЗОВАТЕЛЕЙ ---
-
-# --- НОВЫЙ ЭНДПОИНТ ---
 @router.get("/me", response_model=UserResponse, summary="Get own user info")
 def get_me(current_user: User = Depends(get_current_user)):
-    """
-    Возвращает информацию о текущем авторизованном пользователе.
-    """
     return current_user
 
 
@@ -46,7 +36,6 @@ def update_my_email(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # ... (код без изменений)
     if user_update_data.email != current_user.email:
         existing = db.query(User).filter(User.email == user_update_data.email).first()
         if existing:
@@ -62,18 +51,15 @@ def delete_my_account(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # ... (код без изменений)
     from utils import revoke_bank_consent
     import asyncio
     connections = db.query(models.ConnectedBank).filter(models.ConnectedBank.user_id == current_user.id).all()
-    asyncio.run(asyncio.gather(*[revoke_bank_consent(conn) for conn in connections]))
+    asyncio.run(asyncio.gather(*[revoke_bank_consent(conn, db) for conn in connections]))
     
     db.query(models.ConnectedBank).filter(models.ConnectedBank.user_id == current_user.id).delete()
     db.delete(current_user)
     db.commit()
     return {"status": "deleted", "message": "Your account has been deleted"}
-
-# --- ЭНДПОИНТЫ ТОЛЬКО ДЛЯ АДМИНИСТРАТОРОВ ---
 
 @router.put("/{user_id}", response_model=UserResponse, summary="Update a user by ID (Admins only)")
 def update_user_by_admin(
@@ -82,7 +68,6 @@ def update_user_by_admin(
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin_user)
 ):
-    # ... (код без изменений)
     target_user = db.query(User).filter(User.id == user_id).first()
     if not target_user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -103,12 +88,11 @@ def update_user_by_admin(
 
 
 @router.delete("/{user_id}", summary="Delete a user by ID (Admins only)")
-async def delete_user_by_admin( # <-- ИЗМЕНЕНИЕ 1: async def
+async def delete_user_by_admin(
     user_id: int,
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin_user)
 ):
-    """Удаляет пользователя и все связанные с ним данные по ID."""
     target_user = db.query(User).filter(User.id == user_id).first()
     if not target_user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -120,8 +104,7 @@ async def delete_user_by_admin( # <-- ИЗМЕНЕНИЕ 1: async def
     import asyncio
     connections = db.query(models.ConnectedBank).filter(models.ConnectedBank.user_id == target_user.id).all()
     
-    # v-- ИЗМЕНЕНИЕ 2: await asyncio.gather вместо asyncio.run --v
-    await asyncio.gather(*[revoke_bank_consent(conn) for conn in connections])
+    await asyncio.gather(*[revoke_bank_consent(conn, db) for conn in connections])
     
     db.query(models.ConnectedBank).filter(models.ConnectedBank.user_id == target_user.id).delete()
     db.delete(target_user)

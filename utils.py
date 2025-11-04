@@ -1,32 +1,32 @@
+# finance-app-master/utils.py
 import httpx
 import logging
 from sqlalchemy.orm import Session
 from typing import Optional
 
-from models import ConnectedBank
-from database import get_db  # не нужен напрямую, но модели нужны
-from config import BANK_CONFIGS
+from models import ConnectedBank, Bank
+from database import get_db
 
 logger = logging.getLogger("uvicorn")
 def log_request(request: httpx.Request): logger.info(f"--> {request.method} {request.url}\n    Headers: {request.headers}\n    Body: {request.content.decode() if request.content else ''}")
 def log_response(response: httpx.Response): logger.info(f"<-- {response.status_code} URL: {response.url}\n    Response JSON: {response.text}")
 
-async def revoke_bank_consent(connection: ConnectedBank) -> None:
+async def revoke_bank_consent(connection: ConnectedBank, db: Session) -> None:
     """
     Отзывает согласие (consent или request) в банке по данным подключения.
     """
     id_to_revoke = connection.consent_id or connection.request_id
     if not id_to_revoke:
-        return  # Нечего отзывать
-
-    bank_name = connection.bank_name
-    if bank_name not in BANK_CONFIGS:
-        logger.warning(f"Unknown bank '{bank_name}' for connection {connection.id}. Skipping revocation.")
         return
 
-    config = BANK_CONFIGS[bank_name]
-    revoke_url = f"{config['base_url'].strip()}/account-consents/{id_to_revoke}"
-    headers = {"x-fapi-interaction-id": config['client_id']}
+    bank_name = connection.bank_name
+    config = db.query(Bank).filter(Bank.name == bank_name).first()
+    if not config:
+        logger.warning(f"Bank config for '{bank_name}' not found in DB for conn {connection.id}. Skipping revocation.")
+        return
+
+    revoke_url = f"{config.base_url.strip()}/account-consents/{id_to_revoke}"
+    headers = {"x-fapi-interaction-id": config.client_id}
 
     try:
         async with httpx.AsyncClient() as client:

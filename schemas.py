@@ -1,4 +1,4 @@
-# schemas.py
+# finance-app-master/schemas.py
 from pydantic import BaseModel, field_validator, Field
 from typing import Optional
 
@@ -18,13 +18,12 @@ class UserLogin(BaseModel):
     password: str
 
     class Config:
-        populate_by_name = True  # позволяет использовать "email" в JSON, но принимать как "username"
+        populate_by_name = True
 
 class Token(BaseModel):
     access_token: str
     token_type: str
 
-# --- НОВАЯ СХЕМА ---
 class TokenWithUser(Token):
     user_id: int
 
@@ -40,7 +39,20 @@ class UserListResponse(BaseModel):
     users: list[UserResponse]
 
 
-# --- НОВАЯ СХЕМА ДЛЯ АДМИНИСТРАТОРА ---
 class UserUpdateAdmin(BaseModel):
     email: Optional[str] = None
     is_admin: Optional[bool] = None
+
+# --- НОВЫЕ СХЕМЫ ДЛЯ БАНКОВ ---
+class BankResponse(BaseModel):
+    id: int
+    name: str
+    base_url: str
+    auto_approve: bool
+
+    class Config:
+        from_attributes = True
+
+class BankListResponse(BaseModel):
+    count: int
+    banks: list[BankResponse]
