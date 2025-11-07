@@ -1,6 +1,6 @@
 # finance-app-master/schemas.py
 from pydantic import BaseModel, field_validator, Field
-from typing import Optional
+from typing import Optional, List, Any
 
 class UserCreate(BaseModel):
     email: str
@@ -57,3 +57,23 @@ class BankResponse(BaseModel):
 class BankListResponse(BaseModel):
     count: int
     banks: list[BankResponse]
+
+class AccountSchema(BaseModel):
+    id: int
+    connection_id: int
+    api_account_id: str
+    status: Optional[str] = None
+    currency: Optional[str] = None
+    account_type: Optional[str] = None
+    account_subtype: Optional[str] = None
+    nickname: Optional[str] = None
+    opening_date: Optional[str] = None
+    owner_data: Optional[Any] = None
+    balance_data: Optional[Any] = None
+
+    class Config:
+        from_attributes = True
+
+class AccountListResponse(BaseModel):
+    count: int
+    accounts: List[AccountSchema]
