@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../utils/constants.dart';
 import '../models/account.dart';
 import '../models/connection.dart';
+import '../models/bank.dart';
 
 class ApiService {
   Future<Map<String, dynamic>> login(String email, String password) async {
@@ -21,9 +22,9 @@ class ApiService {
     }
   }
 
-  // --- vvv ИЗМЕНЕННАЯ ФУНКЦИЯ vvv ---
+  // vvv УПРОЩЕННАЯ И ИСПРАВЛЕННАЯ ФУНКЦИЯ vvv
   Future<List<BankWithAccounts>> getAccounts(String token, int userId) async {
-    // 1. Получаем все сохраненные счета пользователя из нашей БД
+    // 1. Делаем ОДИН запрос, чтобы получить плоский список всех счетов
     final accountsResponse = await http.get(
       Uri.parse('$API_BASE_URL/users/$userId/accounts/'),
       headers: {'Authorization': 'Bearer $token'},
@@ -33,39 +34,26 @@ class ApiService {
       throw Exception('Failed to load accounts from database');
     }
 
-    // 2. Получаем все подключения, чтобы сопоставить connection_id с именем банка
-    final connections = await getConnections(token, userId);
-
-    // Создаем карту для быстрого поиска имени банка по ID подключения
-    final Map<int, String> connectionIdToBankName = {
-      for (var conn in connections) conn.id: conn.bankName,
-    };
-
     final accountsBody = json.decode(utf8.decode(accountsResponse.bodyBytes));
     final List<dynamic> accountsJson = accountsBody['accounts'];
 
-    // Группируем счета по имени банка
+    // 2. Группируем счета по имени банка на стороне клиента
     final Map<String, List<Account>> accountsByBank = {};
 
     for (var accJson in accountsJson) {
-      final int connectionId = accJson['connection_id'];
-      final String? bankName = connectionIdToBankName[connectionId];
+      final account = Account.fromJson(accJson);
+      // Используем bankName, который теперь приходит вместе со счетом
+      final String bankName = account.bankName;
 
-      if (bankName != null) {
-        final account = Account.fromJson(accJson);
-        // Если для банка еще нет списка счетов, создаем его
-        accountsByBank.putIfAbsent(bankName, () => []);
-        // Добавляем счет в список
-        accountsByBank[bankName]!.add(account);
-      }
+      accountsByBank.putIfAbsent(bankName, () => []);
+      accountsByBank[bankName]!.add(account);
     }
 
-    // 3. Преобразуем сгруппированную карту в список объектов BankWithAccounts для UI
+    // 3. Преобразуем карту в список объектов BankWithAccounts для UI
     return accountsByBank.entries.map((entry) {
       return BankWithAccounts(name: entry.key, accounts: entry.value);
     }).toList();
   }
-  // --- ^^^ КОНЕЦ ИЗМЕНЕННОЙ ФУНКЦИИ ^^^ ---
 
   Future<List<Connection>> getConnections(String token, int userId) async {
     final response = await http.get(
@@ -79,6 +67,125 @@ class ApiService {
       return connectionsJson.map((json) => Connection.fromJson(json)).toList();
     } else {
       throw Exception('Failed to load connections');
+    }
+  }
+
+  // vvv НОВЫЙ МЕТОД vvv
+  Future<List<Bank>> getAvailableBanks(String token) async {
+    final response = await http.get(
+      Uri.parse('$API_BASE_URL/banks/'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (response.statusCode == 200) {
+      final body = json.decode(utf8.decode(response.bodyBytes));
+      final List banksJson = body['banks'];
+      return banksJson.map((json) => Bank.fromJson(json)).toList();
+    } else {
+      throw Exception('Failed to load available banks');
+    }
+  }
+
+  // vvv ИЗМЕНЯЕМ ЭТОТ МЕТОД, ЧТОБЫ ОН ВОЗВРАЩАЛ ОТВЕТ СЕРВЕРА vvv
+  Future<Map<String, dynamic>> initiateConnection(
+    String token,
+    int userId,
+    String bankName,
+    String bankClientId,
+  ) async {
+    final response = await http.post(
+      Uri.parse('$API_BASE_URL/users/$userId/connections/'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: json.encode({
+        'bank_name': bankName,
+        'bank_client_id': bankClientId,
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      // Возвращаем тело ответа, чтобы получить status и connection_id
+      return json.decode(utf8.decode(response.bodyBytes));
+    } else {
+      String errorMessage =
+          'Ошибка при добавлении банка. Код: ${response.statusCode}';
+      try {
+        final errorBody = json.decode(utf8.decode(response.bodyBytes));
+        if (errorBody['detail'] != null) {
+          errorMessage = 'Ошибка: ${errorBody['detail']}';
+        }
+      } catch (e) {
+        errorMessage += '\nОтвет сервера: ${utf8.decode(response.bodyBytes)}';
+      }
+      throw Exception(errorMessage);
+    }
+  }
+
+  // vvv НОВЫЙ МЕТОД vvv
+  Future<void> refreshConnection(
+    String token,
+    int userId,
+    int connectionId,
+  ) async {
+    final response = await http.post(
+      Uri.parse('$API_BASE_URL/users/$userId/accounts/$connectionId/refresh'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (response.statusCode != 200) {
+      // Этот метод может вызываться в фоне, поэтому просто логируем ошибку,
+      // не бросая исключение, которое может прервать другие обновления.
+      print('Failed to refresh connection $connectionId: ${response.body}');
+    }
+  }
+
+  // vvv НОВЫЙ МЕТОД vvv
+  Future<void> deleteConnection(
+    String token,
+    int userId,
+    int connectionId,
+  ) async {
+    final response = await http.delete(
+      Uri.parse('$API_BASE_URL/users/$userId/connections/$connectionId'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to delete connection');
+    }
+  }
+
+  // vvv НОВЫЙ МЕТОД vvv
+  Future<void> register(String email, String password) async {
+    final response = await http.post(
+      Uri.parse('$API_BASE_URL/auth/register'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({'email': email, 'password': password}),
+    );
+    // 200 - создан, 400 - уже существует. Для UI оба ок.
+    if (response.statusCode != 200 && response.statusCode != 400) {
+      throw Exception('Failed to register');
+    }
+  }
+
+  // vvv НОВЫЙ МЕТОД ДЛЯ ПРОВЕРКИ СТАТУСА vvv
+  Future<void> checkConsentStatus(
+    String token,
+    int userId,
+    int connectionId,
+  ) async {
+    final response = await http.post(
+      Uri.parse('$API_BASE_URL/users/$userId/connections/$connectionId'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+
+    if (response.statusCode != 200) {
+      // Логируем, но не бросаем исключение, чтобы не прерывать другие фоновые задачи
+      print(
+        'Failed to check consent status for connection $connectionId: ${response.body}',
+      );
+    } else {
+      final body = json.decode(utf8.decode(response.bodyBytes));
+      print('Checked status for connection $connectionId: ${body['status']}');
     }
   }
 }

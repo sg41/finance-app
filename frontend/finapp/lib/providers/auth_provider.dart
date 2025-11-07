@@ -32,7 +32,7 @@ class AuthProvider with ChangeNotifier {
     }
     _token = prefs.getString('token');
     _userId = prefs.getInt('userId');
-    notifyListeners();
+
     return true;
   }
 

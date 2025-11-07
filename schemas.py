@@ -70,6 +70,10 @@ class AccountSchema(BaseModel):
     opening_date: Optional[str] = None
     owner_data: Optional[Any] = None
     balance_data: Optional[Any] = None
+    
+    # Поля, которые мы добавим вручную в эндпоинте
+    bank_client_id: str
+    bank_name: str
 
     class Config:
         from_attributes = True
