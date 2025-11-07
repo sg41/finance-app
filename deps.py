@@ -13,8 +13,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 def get_current_user(
     db: Session = Depends(get_db),
     token: str = Depends(oauth2_scheme)
-) -> User: # <-- Рекомендуется добавить type hint
-    # ... без изменений
+) -> User: 
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
