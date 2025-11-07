@@ -1,0 +1,62 @@
+// lib/models/account.dart
+
+class Account {
+  final int id;
+  final String apiAccountId;
+  final String nickname;
+  final String currency;
+  final List<Balance> balances;
+
+  Account({
+    required this.id,
+    required this.apiAccountId,
+    required this.nickname,
+    required this.currency,
+    required this.balances,
+  });
+
+  factory Account.fromJson(Map<String, dynamic> json) {
+    var balanceList = json['balance_data'] as List? ?? [];
+    List<Balance> balances = balanceList
+        .map((i) => Balance.fromJson(i))
+        .toList();
+    return Account(
+      id: json['id'],
+      apiAccountId: json['api_account_id'],
+      nickname: json['nickname'] ?? 'N/A',
+      currency: json['currency'] ?? 'N/A',
+      balances: balances,
+    );
+  }
+}
+
+class Balance {
+  final String type;
+  final String amount;
+  final String currency;
+
+  Balance({required this.type, required this.amount, required this.currency});
+
+  factory Balance.fromJson(Map<String, dynamic> json) {
+    return Balance(
+      type: json['type'] ?? 'N/A',
+      amount: json['amount']?['amount'] ?? '0.00',
+      currency: json['amount']?['currency'] ?? '',
+    );
+  }
+}
+
+class BankWithAccounts {
+  final String name;
+  final List<Account> accounts;
+
+  BankWithAccounts({required this.name, required this.accounts});
+
+  factory BankWithAccounts.fromJson(Map<String, dynamic> json) {
+    var accountList = json['account'] as List? ?? [];
+    List<Account> accounts = accountList
+        .map((i) => Account.fromJson(i))
+        .toList();
+    return BankWithAccounts(name: json['name'], accounts: accounts);
+  }
+}

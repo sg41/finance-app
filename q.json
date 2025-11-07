@@ -1,0 +1,124 @@
+{
+    "data": {
+        "bank": [
+            {
+                "name": "vbank",
+                "account": [
+                    {
+                        "accountId": "acc-4525",
+                        "status": "Enabled",
+                        "currency": "RUB",
+                        "accountType": "Business",
+                        "accountSubType": "Savings",
+                        "nickname": "Savings счет",
+                        "openingDate": "2025-11-05",
+                        "account": [
+                            {
+                                "schemeName": "RU.CBR.PAN",
+                                "identification": "423016d8ea0c9c9de442",
+                                "name": "Иванов Иван Иванович (team076)"
+                            }
+                        ],
+                        "balance": [
+                            {
+                                "type": "InterimAvailable",
+                                "dateTime": "2025-11-05T14:56:39.895069Z",
+                                "amount": {
+                                    "amount": "100.00",
+                                    "currency": "RUB"
+                                },
+                                "creditDebitIndicator": "Credit"
+                            },
+                            {
+                                "type": "InterimBooked",
+                                "dateTime": "2025-11-05T14:56:39.895080Z",
+                                "amount": {
+                                    "amount": "100.00",
+                                    "currency": "RUB"
+                                },
+                                "creditDebitIndicator": "Credit"
+                            }
+                        ]
+                    },
+                    {
+                        "accountId": "acc-4526",
+                        "status": "Enabled",
+                        "currency": "RUB",
+                        "accountType": "Business",
+                        "accountSubType": "Business",
+                        "nickname": "Savings счет",
+                        "openingDate": "2025-11-05",
+                        "account": [
+                            {
+                                "schemeName": "RU.CBR.PAN",
+                                "identification": "423016d8ea0c9c9de443",
+                                "name": "Иванов Иван Иванович (team076)"
+                            }
+                        ],
+                        "balance": [
+                            {
+                                "type": "InterimAvailable",
+                                "dateTime": "2025-11-05T14:56:39.895069Z",
+                                "amount": {
+                                    "amount": "100.00",
+                                    "currency": "RUB"
+                                },
+                                "creditDebitIndicator": "Credit"
+                            },
+                            {
+                                "type": "InterimBooked",
+                                "dateTime": "2025-11-05T14:56:39.895080Z",
+                                "amount": {
+                                    "amount": "100.00",
+                                    "currency": "RUB"
+                                },
+                                "creditDebitIndicator": "Credit"
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "name": "abank",
+                "account": [
+                    {
+                        "accountId": "acc-4529",
+                        "status": "Enabled",
+                        "currency": "RUB",
+                        "accountType": "Business",
+                        "accountSubType": "Savings",
+                        "nickname": "Savings счет",
+                        "openingDate": "2025-11-05",
+                        "account": [
+                            {
+                                "schemeName": "RU.CBR.PAN",
+                                "identification": "423016d8ea0c9c9de455",
+                                "name": "Иванов Иван Иванович (team076)"
+                            }
+                        ],
+                        "balance": [
+                            {
+                                "type": "InterimAvailable",
+                                "dateTime": "2025-11-05T14:56:39.895069Z",
+                                "amount": {
+                                    "amount": "100.00",
+                                    "currency": "RUB"
+                                },
+                                "creditDebitIndicator": "Credit"
+                            },
+                            {
+                                "type": "InterimBooked",
+                                "dateTime": "2025-11-05T14:56:39.895080Z",
+                                "amount": {
+                                    "amount": "100.00",
+                                    "currency": "RUB"
+                                },
+                                "creditDebitIndicator": "Credit"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+}
