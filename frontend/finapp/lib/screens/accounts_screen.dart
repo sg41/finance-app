@@ -6,6 +6,7 @@ import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../models/account.dart';
 import '../models/connection.dart';
+import '../utils/formatting.dart';
 
 class AccountsScreen extends StatefulWidget {
   const AccountsScreen({super.key});
@@ -139,7 +140,8 @@ class _AccountsScreenState extends State<AccountsScreen> {
             children: [
               const Text('Мои счета'),
               Text(
-                '${grandTotal.toStringAsFixed(2)} RUB',
+                grandTotal.toFormattedCurrency('RUB'),
+                // '${grandTotal.toStringAsFixed(2)} RUB',
                 style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.normal,
@@ -167,7 +169,8 @@ class _AccountsScreenState extends State<AccountsScreen> {
                         ),
                       ),
                       Text(
-                        '${bank.totalBalance.toStringAsFixed(2)} RUB',
+                        bank.totalBalance.toFormattedCurrency('RUB'),
+                        // '${bank.totalBalance.toStringAsFixed(2)} RUB',
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
@@ -208,7 +211,8 @@ class _AccountsScreenState extends State<AccountsScreen> {
                       ),
                       trailing: balance != null
                           ? Text(
-                              '${balance.amount} ${balance.currency}',
+                              (num.tryParse(balance.amount) ?? 0.0).toFormattedCurrency(balance.currency),
+                              // '${balance.amount} ${balance.currency}',
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                               ),

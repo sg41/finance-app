@@ -1,6 +1,6 @@
 name: finapp
 description: "A new Flutter project."
-publish_to: 'none'
+publish_to: "none"
 version: 0.1.0
 
 environment:
@@ -12,6 +12,7 @@ dependencies:
   shared_preferences: ^2.2.3
   provider: ^6.1.2
   flutter_svg: ^2.0.10+1
+  intl: ^0.19.0
 
 dev_dependencies:
   flutter_test:
