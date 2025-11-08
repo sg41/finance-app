@@ -5,7 +5,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../models/account.dart';
-import '../models/connection.dart';
+// import '../models/connection.dart';
 import '../utils/formatting.dart';
 
 class AccountsScreen extends StatefulWidget {
@@ -211,7 +211,8 @@ class _AccountsScreenState extends State<AccountsScreen> {
                       ),
                       trailing: balance != null
                           ? Text(
-                              (num.tryParse(balance.amount) ?? 0.0).toFormattedCurrency(balance.currency),
+                              (num.tryParse(balance.amount) ?? 0.0)
+                                  .toFormattedCurrency(balance.currency),
                               // '${balance.amount} ${balance.currency}',
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
