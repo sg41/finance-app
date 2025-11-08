@@ -167,31 +167,35 @@ def get_saved_accounts(
 @router.get(
     "/{api_account_id}/transactions",
     response_model=TransactionListResponse,
-    summary="Получить транзакции по счету из банка"
+    summary="Получить транзакции по счету для конкретного банка" # <--- ИЗМЕНЕНИЕ В ОПИСАНИИ
 )
 async def get_transactions(
     user_id: int,
     api_account_id: str,
+    # vvv ДОБАВЛЕН ОБЯЗАТЕЛЬНЫЙ ПАРАМЕТР vvv
+    bank_name: str = Query(..., description="Уникальное имя банка (например, vbank, sbank)"),
+    # ^^^ --------------------------------- ^^^
     from_booking_date_time: Optional[datetime] = Query(None, description="Начало периода в формате ISO 8601"),
     to_booking_date_time: Optional[datetime] = Query(None, description="Конец периода в формате ISO 8601"),
     page: int = Query(1, ge=1, description="Номер страницы"),
-    #           vvv ИЗМЕНЕНИЕ ЗДЕСЬ vvv
     limit: int = Query(50, ge=1, le=100, description="Количество элементов на странице"),
-    #           ^^^ ИЗМЕНЕНИЕ ЗДЕСЬ ^^^
     db: Session = Depends(get_db),
     current_user: models.User = Depends(user_is_admin_or_self)
 ):
     """
     Запрашивает и возвращает список транзакций для конкретного счета
-    непосредственно из API банка.
+    в конкретном банке.
     """
+    # vvv ЗАПРОС К БД ТЕПЕРЬ УЧИТЫВАЕТ bank_name vvv
     db_account = db.query(models.Account).join(models.ConnectedBank).filter(
         models.Account.api_account_id == api_account_id,
-        models.ConnectedBank.user_id == user_id
+        models.ConnectedBank.user_id == user_id,
+        models.ConnectedBank.bank_name == bank_name
     ).first()
+    # ^^^ ----------------------------------------- ^^^
 
     if not db_account:
-        raise HTTPException(status_code=404, detail="Account not found or access denied for this user.")
+        raise HTTPException(status_code=404, detail="Account not found for the specified bank or access denied.")
 
     connection = db_account.connection
     if not connection or connection.status != "active" or not connection.consent_id:
@@ -258,11 +262,14 @@ async def get_transactions(
 @router.get(
     "/{api_account_id}/turnover",
     response_model=TurnoverResponse,
-    summary="Получить обороты (приход/расход) по счету за период"
+    summary="Получить обороты по счету для конкретного банка за период" # <--- ИЗМЕНЕНИЕ В ОПИСАНИИ
 )
 async def get_account_turnover(
     user_id: int,
     api_account_id: str,
+    # vvv ДОБАВЛЕН ОБЯЗАТЕЛЬНЫЙ ПАРАМЕТР vvv
+    bank_name: str = Query(..., description="Уникальное имя банка (например, vbank, sbank)"),
+    # ^^^ --------------------------------- ^^^
     from_booking_date_time: Optional[datetime] = Query(None, description="Начало периода в формате ISO 8601"),
     to_booking_date_time: Optional[datetime] = Query(None, description="Конец периода в формате ISO 8601"),
     db: Session = Depends(get_db),
@@ -270,15 +277,18 @@ async def get_account_turnover(
 ):
     """
     Рассчитывает и возвращает общую сумму поступлений и списаний по
-    конкретному счету за указанный период, запрашивая все страницы
-    транзакций из API банка.
+    конкретному счету в указанном банке за период.
     """
+    # vvv ЗАПРОС К БД ТЕПЕРЬ УЧИТЫВАЕТ bank_name vvv
     db_account = db.query(models.Account).join(models.ConnectedBank).filter(
         models.Account.api_account_id == api_account_id,
-        models.ConnectedBank.user_id == user_id
+        models.ConnectedBank.user_id == user_id,
+        models.ConnectedBank.bank_name == bank_name
     ).first()
+    # ^^^ ----------------------------------------- ^^^
+
     if not db_account:
-        raise HTTPException(status_code=404, detail="Account not found or access denied.")
+        raise HTTPException(status_code=404, detail="Account not found for the specified bank or access denied.")
 
     connection = db_account.connection
     if not connection or connection.status != "active" or not connection.consent_id:
@@ -298,9 +308,7 @@ async def get_account_turnover(
     }
     transactions_url = f"{bank_config.base_url}/accounts/{api_account_id}/transactions"
     
-    #           vvv ИЗМЕНЕНИЕ ЗДЕСЬ vvv
-    base_params = {"limit": 100} # Запрашиваем максимум для уменьшения числа запросов
-    #           ^^^ ИЗМЕНЕНИЕ ЗДЕСЬ ^^^
+    base_params = {"limit": 100}
     if from_booking_date_time:
         base_params["from_booking_date_time"] = from_booking_date_time.isoformat()
     if to_booking_date_time:
