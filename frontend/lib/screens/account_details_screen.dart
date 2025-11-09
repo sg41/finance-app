@@ -19,7 +19,7 @@ class AccountDetailsScreen extends StatefulWidget {
 class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
   late Account _account;
   TurnoverData? _turnoverData;
-  bool _isLoadingTurnover = false;
+  bool _isLoading = false; // Единый флаг загрузки
   bool _dataChanged = false;
 
   final ApiService _apiService = ApiService();
@@ -28,11 +28,10 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _account = ModalRoute.of(context)!.settings.arguments as Account;
-    // Сразу пытаемся загрузить обороты, если даты уже есть
-    _fetchTurnover();
+    _fetchTurnover(); // Первоначальная загрузка оборотов
   }
 
-  // --- VVV ОБНОВЛЕННАЯ ЛОГИКА VVV ---
+  // --- VVV ПОЛНОСТЬЮ ПЕРЕРАБОТАННАЯ ЛОГИКА VVV ---
 
   Future<void> _selectDate(BuildContext context, bool isStatementDate) async {
     final initialDate =
@@ -46,68 +45,59 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
       lastDate: DateTime(2100),
     );
 
-    if (newDate == null) return;
+    if (newDate == null || !mounted) return;
 
-    // Определяем, какие даты отправлять на сервер
-    final newStatementDate = isStatementDate ? newDate : _account.statementDate;
-    final newPaymentDate = isStatementDate ? _account.paymentDate : newDate;
+    // Сразу показываем индикатор загрузки
+    setState(() {
+      _isLoading = true;
+      _turnoverData = null; // Очищаем старые данные по оборотам
+    });
 
-    // Вызываем единую функцию для сохранения и обновления UI
-    await _saveDatesAndFetchTurnover(
-      statementDate: newStatementDate,
-      paymentDate: newPaymentDate,
-    );
-  }
-
-  Future<void> _saveDatesAndFetchTurnover({
-    DateTime? statementDate,
-    DateTime? paymentDate,
-  }) async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
     try {
-      // 1. Сохраняем даты и получаем обновленный объект счета
+      // 1. Сохраняем новую дату и получаем обновленный объект счета
       final updatedAccount = await _apiService.updateAccountDates(
         userId: authProvider.userId!,
         accountId: _account.id,
         token: authProvider.token!,
-        statementDate: statementDate,
-        paymentDate: paymentDate,
+        statementDate: isStatementDate ? newDate : _account.statementDate,
+        paymentDate: isStatementDate ? _account.paymentDate : newDate,
       );
 
-      // 2. Обновляем состояние виджета ОДИН РАЗ с новым объектом
+      // 2. Обновляем состояние виджета с новым объектом счета
       // Это немедленно отобразит новую дату на экране
       setState(() {
         _account = updatedAccount;
         _dataChanged = true;
       });
 
-      // 3. ТЕПЕРЬ, когда состояние обновлено, запускаем загрузку оборотов
+      // 3. Запускаем загрузку оборотов, используя уже обновленные даты
       await _fetchTurnover();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Ошибка сохранения: $e'),
+          content: Text('Ошибка обновления: $e'),
           backgroundColor: Colors.red,
         ),
       );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
   Future<void> _fetchTurnover() async {
-    // Используем даты из _account - единственного источника правды
     if (_account.statementDate == null || _account.paymentDate == null) {
-      // Если даты неполные, убедимся, что обороты не отображаются
-      if (_turnoverData != null) {
-        setState(() {
-          _turnoverData = null;
-        });
-      }
       return;
     }
 
     setState(() {
-      _isLoadingTurnover = true;
+      _isLoading = true;
     });
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -133,14 +123,15 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
         ),
       );
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _isLoadingTurnover = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
-  // --- ^^^ КОНЕЦ ОБНОВЛЕННОЙ ЛОГИКИ ^^^ ---
+  // --- ^^^ КОНЕЦ ПЕРЕРАБОТАННОЙ ЛОГИКИ ^^^ ---
 
   @override
   Widget build(BuildContext context) {
@@ -159,12 +150,11 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
             const SizedBox(height: 16),
             _buildDatesCard(),
             const SizedBox(height: 16),
-            if (_isLoadingTurnover)
+            if (_isLoading)
               const Center(child: CircularProgressIndicator())
             else if (_turnoverData != null)
               GestureDetector(
                 onTap: () {
-                  // Переходим на экран транзакций, передавая нужные данные
                   Navigator.of(context).pushNamed(
                     '/transactions',
                     arguments: {
@@ -182,6 +172,7 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
     );
   }
 
+  // ... (все методы _build... остаются без изменений)
   Widget _buildInfoCard() {
     return Card(
       child: Padding(

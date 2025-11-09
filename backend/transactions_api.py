@@ -29,7 +29,7 @@ async def _get_all_transactions_for_period(
     to_dt: Optional[datetime],
 ) -> List[TransactionDetail]:
     """
-    Надежно получает все транзакции за период, обрабатывая баг с пагинацией API банка.
+    Надежно и ОПТИМИЗИРОВАННО получает все транзакции за период.
     """
     transactions_url = f"{bank_config.base_url}/accounts/{api_account_id}/transactions"
     headers = {
@@ -38,8 +38,17 @@ async def _get_all_transactions_for_period(
         "X-Consent-Id": connection.consent_id,
         "Accept": "application/json"
     }
-    base_params = {"limit": 100}
     
+    # --- ГЛАВНОЕ ИЗМЕНЕНИЕ: Возвращаем передачу дат в API банка ---
+    base_params = {"limit": 100}
+    if from_dt:
+        base_params["from_booking_date_time"] = from_dt.isoformat()
+    if to_dt:
+        # Для to_dt передаем саму дату, а для нашей внутренней фильтрации
+        # будем использовать конец дня.
+        base_params["to_booking_date_time"] = to_dt.isoformat()
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
     from_utc = from_dt.replace(tzinfo=timezone.utc) if from_dt and from_dt.tzinfo is None else from_dt
     to_utc_inclusive = None
     if to_dt:
@@ -68,14 +77,13 @@ async def _get_all_transactions_for_period(
 
                 for trans_data in transactions_on_page:
                     try:
-                        # Пропускаем, если уже обработали эту транзакцию
                         transaction_id = trans_data.get("transactionId")
                         if not transaction_id or transaction_id in processed_transaction_ids:
                             continue
                         
                         transaction = TransactionDetail(**trans_data)
 
-                        # Фильтруем по дате на нашей стороне
+                        # Внутренняя фильтрация остаётся как дополнительная проверка
                         is_in_date_range = True
                         if from_utc and transaction.bookingDateTime < from_utc:
                             is_in_date_range = False
@@ -89,7 +97,6 @@ async def _get_all_transactions_for_period(
                     except Exception:
                         continue
                 
-                # Если на странице не было ни одной новой транзакции, выходим
                 if len(processed_transaction_ids) == num_processed_before:
                     break
 
