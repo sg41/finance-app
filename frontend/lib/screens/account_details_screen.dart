@@ -19,19 +19,27 @@ class AccountDetailsScreen extends StatefulWidget {
 class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
   late Account _account;
   TurnoverData? _turnoverData;
-  bool _isLoading = false; // Единый флаг загрузки
+  bool _isLoading = false;
   bool _dataChanged = false;
+
+  // VVV ГЛАВНОЕ ИСПРАВЛЕНИЕ: ДОБАВЛЯЕМ ФЛАГ ИНИЦИАЛИЗАЦИИ VVV
+  bool _isInit = true;
 
   final ApiService _apiService = ApiService();
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _account = ModalRoute.of(context)!.settings.arguments as Account;
-    _fetchTurnover(); // Первоначальная загрузка оборотов
+    // Запускаем инициализацию только один раз
+    if (_isInit) {
+      _account = ModalRoute.of(context)!.settings.arguments as Account;
+      _fetchTurnover(); // Первоначальная загрузка оборотов
+      setState(() {
+        _isInit = false; // Устанавливаем флаг, чтобы больше не заходить сюда
+      });
+    }
+    // ^^^ КОНЕЦ ИСПРАВЛЕНИЯ ^^^
   }
-
-  // --- VVV ПОЛНОСТЬЮ ПЕРЕРАБОТАННАЯ ЛОГИКА VVV ---
 
   Future<void> _selectDate(BuildContext context, bool isStatementDate) async {
     final initialDate =
@@ -47,16 +55,14 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
 
     if (newDate == null || !mounted) return;
 
-    // Сразу показываем индикатор загрузки
     setState(() {
       _isLoading = true;
-      _turnoverData = null; // Очищаем старые данные по оборотам
+      _turnoverData = null;
     });
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
     try {
-      // 1. Сохраняем новую дату и получаем обновленный объект счета
       final updatedAccount = await _apiService.updateAccountDates(
         userId: authProvider.userId!,
         accountId: _account.id,
@@ -65,14 +71,11 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
         paymentDate: isStatementDate ? _account.paymentDate : newDate,
       );
 
-      // 2. Обновляем состояние виджета с новым объектом счета
-      // Это немедленно отобразит новую дату на экране
       setState(() {
         _account = updatedAccount;
         _dataChanged = true;
       });
 
-      // 3. Запускаем загрузку оборотов, используя уже обновленные даты
       await _fetchTurnover();
     } catch (e) {
       if (!mounted) return;
@@ -131,10 +134,13 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
     }
   }
 
-  // --- ^^^ КОНЕЦ ПЕРЕРАБОТАННОЙ ЛОГИКИ ^^^ ---
-
   @override
   Widget build(BuildContext context) {
+    // Если виджет еще не инициализирован, показываем заглушку
+    if (_isInit) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     return PopScope(
       canPop: false,
       onPopInvoked: (bool didPop) {
