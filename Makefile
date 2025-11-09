@@ -9,7 +9,7 @@ run:
 	cd backend; uvicorn main:app --reload --host 0.0.0.0 --port 8001 --log-level info || echo " Try to run: source .venv/bin/activate"
 
 database:
-	docker compose up -d
+# 	docker compose up -d
 	cd backend; python3 create_test_user.py
  
 .PHONY: test
