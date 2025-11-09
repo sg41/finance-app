@@ -24,10 +24,9 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   late Future<List<Transaction>> _transactionsFuture;
   final ApiService _apiService = ApiService();
 
-  // VVV ДОБАВЛЯЕМ НОВЫЕ ПОЛЯ СОСТОЯНИЯ VVV
+  // Переменная _transactions теперь будет хранить результат Future для экспорта
   List<Transaction> _transactions = [];
   bool _isExporting = false;
-  // ^^^ КОНЕЦ НОВЫХ ПОЛЕЙ ^^^
 
   @override
   void didChangeDependencies() {
@@ -49,7 +48,6 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     );
   }
 
-  // VVV ДОБАВЛЯЕМ НОВЫЙ МЕТОД ДЛЯ ЭКСПОРТА VVV
   Future<void> _exportToExcel() async {
     if (_transactions.isEmpty) {
       ScaffoldMessenger.of(
@@ -91,14 +89,6 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         sheetObject.appendRow(row);
       }
 
-      // ИСПРАВЛЕНИЕ: Полностью убираем цикл авто-подбора ширины,
-      // так как этого метода нет в используемой версии пакета.
-      /*
-      for (var i = 0; i < headers.length; i++) {
-        sheetObject.autoFitColumn(i); 
-      }
-      */
-
       final fileBytes = excel.encode();
       if (fileBytes != null) {
         final date = DateFormat('yyyy-MM-dd').format(DateTime.now());
@@ -125,7 +115,6 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       }
     }
   }
-  // ^^^ КОНЕЦ НОВОГО МЕТОДА ^^^
 
   @override
   Widget build(BuildContext context) {
@@ -134,65 +123,64 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     final fromDate = args['fromDate'] as DateTime;
     final toDate = args['toDate'] as DateTime;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Транзакции'),
-            Text(
-              '${DateFormat('dd.MM.yy').format(fromDate)} - ${DateFormat('dd.MM.yy').format(toDate)}',
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.normal,
-              ),
-            ),
-          ],
-        ),
-        // VVV ДОБАВЛЯЕМ КНОПКУ ЭКСПОРТА VVV
-        actions: [
-          if (_isExporting)
-            const Padding(
-              padding: EdgeInsets.only(right: 16.0),
-              child: Center(
-                child: SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(color: Colors.white),
+    // VVV ВСЯ ЛОГИКА ТЕПЕРЬ ВНУТРИ FUTUREBUILDER VVV
+    return FutureBuilder<List<Transaction>>(
+      future: _transactionsFuture,
+      builder: (context, snapshot) {
+        // Определяем AppBar для всех состояний
+        final appBar = AppBar(
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Транзакции'),
+              Text(
+                '${DateFormat('dd.MM.yy').format(fromDate)} - ${DateFormat('dd.MM.yy').format(toDate)}',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.normal,
                 ),
               ),
-            )
-          else
-            IconButton(
-              icon: const Icon(Icons.download),
-              tooltip: 'Экспорт в Excel',
-              onPressed: _transactions.isEmpty ? null : _exportToExcel,
-            ),
-        ],
-        // ^^^ КОНЕЦ ИЗМЕНЕНИЙ ^^^
-      ),
-      body: FutureBuilder<List<Transaction>>(
-        future: _transactionsFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text("Ошибка загрузки: ${snapshot.error}"));
-          }
-          if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(
-              child: Text("Транзакций за период не найдено."),
-            );
-          }
+            ],
+          ),
+          actions: [
+            if (_isExporting)
+              const Padding(
+                padding: EdgeInsets.only(right: 16.0),
+                child: Center(
+                  child: SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(color: Colors.white),
+                  ),
+                ),
+              )
+            else
+              IconButton(
+                icon: const Icon(Icons.download),
+                tooltip: 'Экспорт в Excel',
+                // Кнопка активна только если есть данные
+                onPressed: (snapshot.hasData && snapshot.data!.isNotEmpty)
+                    ? _exportToExcel
+                    : null,
+              ),
+          ],
+        );
 
-          // Сохраняем данные в состояние для доступа из функции экспорта
+        // Определяем тело в зависимости от состояния
+        Widget body;
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          body = const Center(child: CircularProgressIndicator());
+        } else if (snapshot.hasError) {
+          body = Center(child: Text("Ошибка загрузки: ${snapshot.error}"));
+        } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          body = const Center(child: Text("Транзакций за период не найдено."));
+        } else {
           _transactions = snapshot.data!;
           _transactions.sort(
             (a, b) => b.bookingDateTime.compareTo(a.bookingDateTime),
           );
 
-          return ListView.builder(
+          body = ListView.builder(
             itemCount: _transactions.length,
             itemBuilder: (ctx, i) {
               final tx = _transactions[i];
@@ -228,8 +216,12 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               );
             },
           );
-        },
-      ),
+        }
+
+        // Возвращаем Scaffold, который перерисовывается целиком
+        return Scaffold(appBar: appBar, body: body);
+      },
     );
+    // ^^^ КОНЕЦ ИЗМЕНЕНИЙ ^^^
   }
 }
