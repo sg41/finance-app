@@ -11,6 +11,7 @@ import 'screens/login_screen.dart';
 import 'screens/connections_screen.dart';
 import 'screens/add_connection_screen.dart';
 import 'screens/account_details_screen.dart'; // <-- ДОБАВИТЬ
+import 'screens/transactions_screen.dart'; // <-- ДОБАВЬТЕ ЭТОТ ИМПОРТ
 
 void main() {
   runApp(const MyApp());
@@ -64,6 +65,8 @@ class MyApp extends StatelessWidget {
             '/connections': (ctx) => const ConnectionsScreen(),
             '/add-connection': (ctx) => const AddConnectionScreen(),
             '/account-details': (ctx) => const AccountDetailsScreen(),
+            '/transactions': (ctx) =>
+                const TransactionsScreen(), // <-- ДОБАВЬТЕ ЭТУ СТРОКУ
           },
         ),
       ),

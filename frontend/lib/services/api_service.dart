@@ -7,6 +7,7 @@ import '../models/account.dart';
 import '../models/connection.dart';
 import '../models/bank.dart';
 import '../models/turnover_data.dart';
+import '../models/transaction.dart'; // <-- ДОБАВЬТЕ ЭТОТ ИМПОРТ
 
 class ApiService {
   Future<Map<String, dynamic>> login(String email, String password) async {
@@ -259,6 +260,44 @@ class ApiService {
       );
     } else {
       throw Exception('Failed to load turnover data: ${response.body}');
+    }
+  }
+
+  Future<List<Transaction>> getTransactions({
+    required String token,
+    required int userId,
+    required int bankId,
+    required String apiAccountId,
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final uri =
+        Uri.parse(
+          '$API_BASE_URL/users/$userId/banks/$bankId/accounts/$apiAccountId/transactions',
+        ).replace(
+          queryParameters: {
+            'from_booking_date_time': from.toUtc().toIso8601String(),
+            'to_booking_date_time': to.toUtc().toIso8601String(),
+            'limit': '100', // Ограничимся 100 транзакциями на период
+          },
+        );
+
+    final response = await http.get(
+      uri,
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      final body = json.decode(utf8.decode(response.bodyBytes));
+      final List<dynamic> transactionsJson = body['data']['transaction'];
+      return transactionsJson
+          .map((json) => Transaction.fromJson(json))
+          .toList();
+    } else {
+      throw Exception('Failed to load transactions: ${response.body}');
     }
   }
 }

@@ -162,7 +162,20 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
             if (_isLoadingTurnover)
               const Center(child: CircularProgressIndicator())
             else if (_turnoverData != null)
-              _buildTurnoverCard(),
+              GestureDetector(
+                onTap: () {
+                  // Переходим на экран транзакций, передавая нужные данные
+                  Navigator.of(context).pushNamed(
+                    '/transactions',
+                    arguments: {
+                      'account': _account,
+                      'fromDate': _account.statementDate!,
+                      'toDate': _account.paymentDate!,
+                    },
+                  );
+                },
+                child: _buildTurnoverCard(),
+              ),
           ],
         ),
       ),
