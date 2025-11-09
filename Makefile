@@ -10,6 +10,6 @@ run:
 
 database:
 	docker compose up -d
-	python3 create_test_user.py
+	cd backend; python3 create_test_user.py
  
 .PHONY: test
